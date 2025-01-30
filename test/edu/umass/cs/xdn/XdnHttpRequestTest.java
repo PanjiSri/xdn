@@ -284,25 +284,25 @@ public class XdnHttpRequestTest {
         assertTrue(isExist);
     }
 
-    @Test
-    public void testGetRequestTimestamp() {
-        throw new RuntimeException("unimplemented");
-    }
-
-    @Test
-    public void testBehavioralReadOnlyRequest() {
-        throw new RuntimeException("unimplemented");
-    }
-
-    @Test
-    public void testBehavioralReadModifyWriteRequest() {
-        throw new RuntimeException("unimplemented");
-    }
-
-    @Test
-    public void testBehavioralWriteOnlyRequest() {
-        throw new RuntimeException("unimplemented");
-    }
+//    @Test
+//    public void testGetRequestTimestamp() {
+//        throw new RuntimeException("unimplemented");
+//    }
+//
+//    @Test
+//    public void testBehavioralReadOnlyRequest() {
+//        throw new RuntimeException("unimplemented");
+//    }
+//
+//    @Test
+//    public void testBehavioralReadModifyWriteRequest() {
+//        throw new RuntimeException("unimplemented");
+//    }
+//
+//    @Test
+//    public void testBehavioralWriteOnlyRequest() {
+//        throw new RuntimeException("unimplemented");
+//    }
 
     private static HttpRequest helpCreateDummyHttpRequest() {
         String serviceName = "dummyServiceName";

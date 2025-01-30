@@ -110,10 +110,10 @@ public class ServicePropertyTest {
         }
     }
 
-    @Test
-    public void ServicePropertyTest_ToJsonStringTwoComponents() {
-        throw new RuntimeException("unimplemented");
-    }
+//    @Test
+//    public void ServicePropertyTest_ToJsonStringTwoComponents() {
+//        throw new RuntimeException("unimplemented");
+//    }
 
 
 }

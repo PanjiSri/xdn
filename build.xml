@@ -370,11 +370,7 @@
 
     <!-- begin build configuration for junit5 tests -->
     <path id="junit5.lib.jars">
-        <pathelement location="${lib.dir}/junit-jupiter-api-5.11.1.jar"/>
-        <pathelement location="${lib.dir}/junit-jupiter-engine-5.11.1.jar"/>
-        <pathelement location="${lib.dir}/junit-platform-engine-1.11.1.jar"/>
-        <pathelement location="${lib.dir}/junit-platform-launcher-1.11.1.jar"/>
-        <pathelement location="${lib.dir}/junit-platform-commons-1.11.1.jar"/>
+        <fileset dir="${lib.dir}" includes="*.jar"/>
     </path>
     <target name="xdn-compile-tests">
         <mkdir dir="build/test-classes"/>
@@ -422,5 +418,21 @@
         </propertyfile>
     </target>
     -->
+
+    <target name="json-jar" description="Builds our custom org.json jar" depends="init">
+        <mkdir dir="build/json-classes"/>
+
+        <javac srcdir="src/org/json" destdir="build/json-classes" includeantruntime="false" debug="true">
+            <compilerarg value="-Xlint:unchecked"/>
+        </javac>
+
+        <jar destfile="lib/json_custom.jar">
+            <fileset dir="build/json-classes" includes="org/json/**/*.class"/>
+            <manifest>
+                <attribute name="Implementation-Title" value="org.json custom"/>
+                <attribute name="Implementation-Version" value="1.0"/>
+            </manifest>
+        </jar>
+    </target>
 
 </project>
