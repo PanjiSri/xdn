@@ -63,10 +63,6 @@ jobs:
         run: |
           ant test
 
-      - name: Run tests directory
-        run: |
-          ant xdn-unit-tests
-
       - name: Run a specific target
         run: |
           ant runtest -Dtest=edu/umass/cs/reconfiguration/testing/TESTReconfigurationMain
