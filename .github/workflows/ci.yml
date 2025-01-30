@@ -65,5 +65,9 @@ jobs:
 
       - name: Run a specific target
         run: |
-          ant runtest -Dtest=edu/umass/cs/reconfiguration/testing/TESTReconfigurationMain
+           ant runtest -Dtest=edu/umass/cs/reconfiguration/testing/TESTReconfigurationMain
 #          ant runtest -Dtest=edu/umass/cs/gigapaxos/testing/TESTPaxosMain
+
+      - name: Run unit test from tests directory
+        run: |
+          ant xdn-unit-tests
