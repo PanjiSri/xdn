@@ -157,6 +157,7 @@
         <pathelement location="${lib.dir}/netty-all-4.1.50.Final.jar"/>
         <pathelement location="${lib.dir}/protobuf-java-4.28.2.jar"/>
         <!--    <pathelement location="${conf.dir}"/>-->
+        <pathelement location="${lib.dir}/json_custom.jar"/>
     </path>
 
     <target name="ensure-test-name" unless="test">
