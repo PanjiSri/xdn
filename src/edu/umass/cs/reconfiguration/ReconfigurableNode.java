@@ -15,21 +15,7 @@
  * Initial developer(s): V. Arun */
 package edu.umass.cs.reconfiguration;
 
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.logging.Level;
-
-import edu.umass.cs.cops.CopsReplicaCoordinator;
-import edu.umass.cs.nio.NIOTransport;
-import edu.umass.cs.nio.interfaces.Stringifiable;
-import edu.umass.cs.pram.PramReplicaCoordinator;
-import edu.umass.cs.xdn.XDNReplicaCoordinator;
-import org.json.JSONObject;
-
+import edu.umass.cs.causal.CausalReplicaCoordinator;
 import edu.umass.cs.gigapaxos.AbstractPaxosLogger;
 import edu.umass.cs.gigapaxos.PaxosConfig;
 import edu.umass.cs.gigapaxos.PaxosConfig.PC;
@@ -39,14 +25,28 @@ import edu.umass.cs.gigapaxos.interfaces.Replicable;
 import edu.umass.cs.nio.AbstractPacketDemultiplexer;
 import edu.umass.cs.nio.JSONMessenger;
 import edu.umass.cs.nio.MessageNIOTransport;
+import edu.umass.cs.nio.NIOTransport;
 import edu.umass.cs.nio.interfaces.IntegerPacketType;
+import edu.umass.cs.nio.interfaces.Stringifiable;
 import edu.umass.cs.nio.nioutils.NIOInstrumenter;
+import edu.umass.cs.pram.PramReplicaCoordinator;
+import edu.umass.cs.primarybackup.PrimaryBackupReplicaCoordinator;
 import edu.umass.cs.reconfiguration.interfaces.ReconfigurableNodeConfig;
 import edu.umass.cs.reconfiguration.reconfigurationutils.ConsistentReconfigurableNodeConfig;
 import edu.umass.cs.reconfiguration.reconfigurationutils.DefaultNodeConfig;
 import edu.umass.cs.reconfiguration.reconfigurationutils.ReconfigurationPacketDemultiplexer;
 import edu.umass.cs.reconfiguration.reconfigurationutils.ReconfigurationPolicyTest;
 import edu.umass.cs.utils.Config;
+import edu.umass.cs.xdn.XdnReplicaCoordinator;
+import org.json.JSONObject;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.logging.Level;
 
 /**
  * @param <NodeIDType> A generic type for representing node identifiers. It must support
@@ -121,8 +121,6 @@ public abstract class ReconfigurableNode<NodeIDType> {
                                                              ReconfigurableNodeConfig<NodeIDType> nodeConfig) {
         AbstractReplicaCoordinator<NodeIDType> appCoordinator = null;
         // ReplicaCoordinator<NodeIDType> appCoordinator = null;
-
-        System.out.println(">> createApp");
 
         if (ReconfigurationConfig.application == null)
             throw new RuntimeException("Application name can not be null");
@@ -212,6 +210,7 @@ public abstract class ReconfigurableNode<NodeIDType> {
             nodeIDStringifier = s;
         }
 
+        // TODO: handle this programmatically
         switch (coordinatorClassName) {
             case "edu.umass.cs.reconfiguration.PaxosReplicaCoordinator" -> {
                 return new PaxosReplicaCoordinator<NodeIDType>(app, myID, nodeIDStringifier,
@@ -226,20 +225,21 @@ public abstract class ReconfigurableNode<NodeIDType> {
                 return new ChainReplicaCoordinator<NodeIDType>(app, myID, nodeIDStringifier,
                         messenger);
             }
-            case "edu.umass.cs.reconfiguration.PrimaryBackupReplicaCoordinator" -> {
+            case "edu.umass.cs.primarybackup.PrimaryBackupReplicaCoordinator" -> {
                 return new PrimaryBackupReplicaCoordinator<NodeIDType>(
                         app, myID, nodeIDStringifier, messenger);
             }
-            case "edu.umass.cs.xdn.XDNReplicaCoordinator" -> {
-                return new XDNReplicaCoordinator<NodeIDType>(
+            case "edu.umass.cs.xdn.XdnReplicaCoordinator" -> {
+                return new XdnReplicaCoordinator<NodeIDType>(
                         app, myID, nodeIDStringifier, messenger);
             }
-            case "edu.umass.cs.cops.CopsReplicaCoordinator" -> {
-                return new CopsReplicaCoordinator<NodeIDType>(
+            case "edu.umass.cs.causal.CausalReplicaCoordinator" -> {
+                return new CausalReplicaCoordinator<NodeIDType>(
                         app, myID, nodeIDStringifier, messenger);
             }
             case "edu.umass.cs.pram.PramReplicaCoordinator" -> {
-                return new PramReplicaCoordinator<NodeIDType>(app, myID, nodeIDStringifier, messenger);
+                return new PramReplicaCoordinator<NodeIDType>(
+                        app, myID, nodeIDStringifier, messenger);
             }
         }
 

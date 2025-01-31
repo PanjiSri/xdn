@@ -12,10 +12,10 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Java (Temurin 21)
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -30,7 +30,7 @@ jobs:
           ant jar
 
       - name: Archive built jars
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: xdn-jars
           path: jars
@@ -41,15 +41,15 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Download built jars
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: xdn-jars
 
       - name: Set up Java (Temurin 21)
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -67,3 +67,7 @@ jobs:
         run: |
            ant runtest -Dtest=edu/umass/cs/reconfiguration/testing/TESTReconfigurationMain
 #          ant runtest -Dtest=edu/umass/cs/gigapaxos/testing/TESTPaxosMain
+
+      - name: Run unit test from tests directory
+        run: |
+          ant xdn-unit-tests

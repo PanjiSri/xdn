@@ -1,42 +1,21 @@
 package edu.umass.cs.reconfiguration.http;
 
-import static io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST;
-import static io.netty.handler.codec.http.HttpResponseStatus.CONTINUE;
-import static io.netty.handler.codec.http.HttpResponseStatus.OK;
-import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
-
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.security.cert.CertificateException;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-
-import javax.net.ssl.SSLException;
-
-import edu.umass.cs.primarybackup.packets.ChangePrimaryPacket;
-import edu.umass.cs.utils.Config;
-import edu.umass.cs.xdn.request.XDNHttpRequest;
-import edu.umass.cs.xdn.request.XDNRequest;
-import io.netty.channel.*;
-import io.netty.handler.codec.http.*;
-import org.json.JSONException;
-import org.json.JSONObject;
-
 import edu.umass.cs.gigapaxos.interfaces.ExecutedCallback;
 import edu.umass.cs.gigapaxos.interfaces.Request;
+import edu.umass.cs.primarybackup.packets.ChangePrimaryPacket;
 import edu.umass.cs.reconfiguration.ReconfigurationConfig;
 import edu.umass.cs.reconfiguration.interfaces.ActiveReplicaFunctions;
 import edu.umass.cs.reconfiguration.reconfigurationpackets.ReplicableClientRequest;
+import edu.umass.cs.utils.Config;
+import edu.umass.cs.xdn.request.XdnHttpRequest;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.handler.codec.http.*;
 import io.netty.handler.codec.http.cookie.Cookie;
 import io.netty.handler.codec.http.cookie.ServerCookieDecoder;
 import io.netty.handler.codec.http.cookie.ServerCookieEncoder;
@@ -48,6 +27,22 @@ import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
 import io.netty.util.CharsetUtil;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import javax.net.ssl.SSLException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.security.cert.CertificateException;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import static io.netty.handler.codec.http.HttpResponseStatus.*;
+import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
 
 /**
  * An HTTP front-end for an active replica that supports interaction
@@ -98,21 +93,11 @@ public class HttpActiveReplica {
     private final EventLoopGroup workerGroup;
 
     private final Channel channel;
+    private final String nodeId;
+    private static final Logger logger = Logger.getLogger(HttpActiveReplica.class.getName());
 
     // FIXME: used to indicate whether a single outstanding request has been executed, might go wrong when there are multiple outstanding requests
     static boolean finished;
-
-    /**
-     * @param arf
-     * @param ssl
-     * @throws CertificateException
-     * @throws SSLException
-     * @throws InterruptedException
-     */
-    public HttpActiveReplica(ActiveReplicaFunctions arf,
-                             boolean ssl) throws CertificateException, SSLException, InterruptedException {
-        this(arf, null, ssl);
-    }
 
     /**
      * @param arf
@@ -122,9 +107,14 @@ public class HttpActiveReplica {
      * @throws SSLException
      * @throws InterruptedException
      */
-    public HttpActiveReplica(ActiveReplicaFunctions arf,
-                             InetSocketAddress sockAddr, boolean ssl)
+    public HttpActiveReplica(String nodeId,
+                             ActiveReplicaFunctions arf,
+                             InetSocketAddress sockAddr,
+                             boolean ssl)
             throws CertificateException, SSLException, InterruptedException {
+
+        this.nodeId = nodeId;
+        assert this.nodeId != null : "Node ID cannot be null";
 
         // Configure SSL.
         final SslContext sslCtx;
@@ -147,7 +137,7 @@ public class HttpActiveReplica {
                     .channel(NioServerSocketChannel.class)
                     .handler(new LoggingHandler(LogLevel.INFO))
                     .childHandler(
-                            new HttpActiveReplicaInitializer(arf, sslCtx)
+                            new HttpActiveReplicaInitializer(nodeId, arf, sslCtx)
                     );
 
             if (sockAddr == null) {
@@ -171,7 +161,6 @@ public class HttpActiveReplica {
             channel = b.bind(sockAddr).sync().channel();
 
             log.log(Level.INFO, "HttpActiveReplica is ready on {0}", new Object[]{sockAddr});
-            System.out.println("HttpActiveReplica ready on " + sockAddr);
 
             channel.closeFuture().sync();
         } finally {
@@ -193,11 +182,14 @@ public class HttpActiveReplica {
     private static class HttpActiveReplicaInitializer extends
             ChannelInitializer<SocketChannel> {
 
+        private final String nodeId;
         private final SslContext sslCtx;
         final ActiveReplicaFunctions arFunctions;
 
-        HttpActiveReplicaInitializer(final ActiveReplicaFunctions arf,
+        HttpActiveReplicaInitializer(String nodeId,
+                                     final ActiveReplicaFunctions arf,
                                      SslContext sslCtx) {
+            this.nodeId = nodeId;
             this.arFunctions = arf;
             this.sslCtx = sslCtx;
         }
@@ -220,7 +212,7 @@ public class HttpActiveReplica {
 
             p.addLast(new CorsHandler(corsConfig));
 
-            p.addLast(new HttpActiveReplicaHandler(arFunctions, channel.remoteAddress()));
+            p.addLast(new HttpActiveReplicaHandler(nodeId, arFunctions, channel.remoteAddress()));
 
         }
 
@@ -315,10 +307,10 @@ public class HttpActiveReplica {
 
     }
 
-
     private static class HttpActiveReplicaHandler extends
             SimpleChannelInboundHandler<Object> {
 
+        private static String nodeId = null;
         ActiveReplicaFunctions arFunctions;
         final InetSocketAddress senderAddr;
 
@@ -329,7 +321,8 @@ public class HttpActiveReplica {
          */
         private final StringBuilder buf = new StringBuilder();
 
-        HttpActiveReplicaHandler(ActiveReplicaFunctions arFunctions, InetSocketAddress addr) {
+        HttpActiveReplicaHandler(String nodeId, ActiveReplicaFunctions arFunctions, InetSocketAddress addr) {
+            HttpActiveReplicaHandler.nodeId = nodeId;
             this.arFunctions = arFunctions;
             this.senderAddr = addr;
         }
@@ -346,30 +339,27 @@ public class HttpActiveReplica {
             // (1) the HttpRequest contains non-empty XDN header, or
             // (2) the HttpRequest contains Host header ending in "xdnapp.com".
             // Note that "Host" header is required since HTTP 1.1
-            if (msg instanceof HttpRequest) {
-                boolean isXDNRequest = false;
+            if (msg instanceof HttpRequest httpRequest) {
+                boolean isXdnRequest = false;
 
-                System.out.println("receiving an HTTP request ...");
-
-                // handle the first condition: contains XDN header
-                HttpRequest httpRequest = (HttpRequest) msg;
+                // Handle the first condition: contains XDN header
                 String xdnHeader = httpRequest.headers().get("XDN");
-                if (xdnHeader != null && xdnHeader.length() > 0) {
-                    isXDNRequest = true;
+                if (xdnHeader != null && !xdnHeader.isEmpty()) {
+                    isXdnRequest = true;
                 }
 
-                // handle the second condition: Host ending with "xdnapp.com"
+                // Handle the second condition: Host ending with "xdnapp.com"
                 String requestHost = httpRequest.headers().get(HttpHeaderNames.HOST);
                 if (requestHost != null) {
                     String[] hostPort = requestHost.split(":");
                     String host = hostPort[0];
                     if (host.endsWith(XDN_HOST_DOMAIN)) {
-                        isXDNRequest = true;
+                        isXdnRequest = true;
                     }
                 }
 
-                if (isXDNRequest) {
-                    handleReceivedXDNRequest(ctx, msg);
+                if (isXdnRequest) {
+                    handleReceivedXdnRequest(ctx, msg);
                     return;
                 }
             }
@@ -502,7 +492,8 @@ public class HttpActiveReplica {
 
         }
 
-        private void handleReceivedXDNRequest(ChannelHandlerContext ctx, Object msg) throws Exception {
+        private void handleReceivedXdnRequest(ChannelHandlerContext ctx, Object msg) {
+            long startXdnRequestProcTime = System.nanoTime();
 
             if (msg instanceof HttpRequest) {
                 this.request = (HttpRequest) msg;
@@ -518,10 +509,10 @@ public class HttpActiveReplica {
             if (msg instanceof LastHttpContent) {
                 assert this.request != null;
                 boolean isKeepAlive = HttpUtil.isKeepAlive(this.request);
-                String serviceName = XDNHttpRequest.inferServiceName(this.request);
 
-                // return http bad request if service name is not available
-                if (serviceName == null || serviceName.equals("")) {
+                // return http bad request if service name is not specified
+                String serviceName = XdnHttpRequest.inferServiceName(this.request);
+                if (serviceName == null || serviceName.isEmpty()) {
                     sendBadRequestResponse(
                             "Unspecified service name." +
                                     "This can be cause because of a wrong Host or empty XDN header",
@@ -539,23 +530,24 @@ public class HttpActiveReplica {
                     return;
                 }
 
-                XDNHttpRequest httpRequest = new XDNHttpRequest(
-                        serviceName,
-                        this.request,
-                        this.requestContent);
+                XdnHttpRequest httpRequest =
+                        new XdnHttpRequest(this.request, this.requestContent);
 
                 // prepare the callback for this http request
-                XDNHttpExecutedCallback callback = new XDNHttpExecutedCallback(httpRequest, ctx);
+                XdnHttpExecutedCallback callback =
+                        new XdnHttpExecutedCallback(
+                                httpRequest, ctx, arFunctions, startXdnRequestProcTime);
 
                 // create Gigapaxos' request, it is important to explicitly set the clientAddress,
                 // otherwise, down the pipeline, the RequestPacket's equals method will return false
                 // and our callback will not be called, leaving the client hanging
                 // waiting for response.
                 ReplicableClientRequest gpRequest = ReplicableClientRequest.wrap(httpRequest);
-                String[] addrPort = ctx.channel().remoteAddress().toString().split(":");
-                gpRequest.setClientAddress(new InetSocketAddress(
-                        InetAddress.getByName(addrPort[0].substring(1)),
-                        Integer.parseInt(addrPort[1])));
+                InetSocketAddress clientInetSocketAddress = null;
+                assert ctx.channel().remoteAddress() instanceof InetSocketAddress :
+                        "Expecting Internet socket address from client";
+                clientInetSocketAddress = (InetSocketAddress) ctx.channel().remoteAddress();
+                gpRequest.setClientAddress(clientInetSocketAddress);
 
                 // forward http request to XDN App, which eventually will forward it to the service.
                 // Note that response later will be written inside the callback, via ctx.
@@ -627,8 +619,7 @@ public class HttpActiveReplica {
         }
 
         private static void writeHttpResponse(HttpResponse httpResponse, ChannelHandlerContext ctx,
-                                              boolean isKeepAlive) {
-
+                                              boolean isKeepAlive, long startProcessingTime) {
             if (isKeepAlive) {
                 httpResponse.headers().set(
                         HttpHeaderNames.CONNECTION,
@@ -638,7 +629,8 @@ public class HttpActiveReplica {
             ChannelFuture cf = ctx.writeAndFlush(httpResponse);
             cf.addListener((ChannelFutureListener) channelFuture -> {
                 if (!channelFuture.isSuccess()) {
-                    System.out.println("writing response failed: " + channelFuture.cause());
+                    logger.log(Level.WARNING,
+                            "Writing response failed: " + channelFuture.cause());
                 }
 
                 // If keep-alive is off, close the connection once the content is fully written.
@@ -647,6 +639,13 @@ public class HttpActiveReplica {
                             .addListener(ChannelFutureListener.CLOSE);
                 }
             });
+
+            long elapsedTime = System.nanoTime() - startProcessingTime;
+            logger.log(Level.FINE, "{0}:{1} - HTTP execution within {2}ms",
+                    new Object[]{
+                            nodeId,
+                            HttpActiveReplica.class.getSimpleName(),
+                            (elapsedTime / 1_000_000.0)});
         }
 
         private boolean writeResponse(HttpObject currentObj, ChannelHandlerContext ctx) {
@@ -694,23 +693,35 @@ public class HttpActiveReplica {
             ctx.write(response);
         }
 
-        private record XDNHttpExecutedCallback(XDNHttpRequest request, ChannelHandlerContext ctx)
+        private record XdnHttpExecutedCallback(XdnHttpRequest request,
+                                               ChannelHandlerContext ctx,
+                                               ActiveReplicaFunctions arFunctions,
+                                               long startProcessingTime)
                 implements ExecutedCallback {
             @Override
             public void executed(Request executedRequest, boolean handled) {
-                if (!(executedRequest instanceof XDNHttpRequest xdnRequest)) {
+                // Validates the executed Http request
+                if (!(executedRequest instanceof XdnHttpRequest xdnRequest)) {
                     String exceptionMessage = "Unexpected executed request (" +
                             executedRequest.getClass().getSimpleName() +
-                            "), it must be an XDNHttpRequest.";
+                            "), it must be a " + XdnHttpRequest.class.getSimpleName();
                     throw new RuntimeException(exceptionMessage);
                 }
 
+                // Prepares the Http response, then send it back to client.
                 HttpResponse httpResponse = xdnRequest.getHttpResponse();
                 boolean isKeepAlive = HttpUtil.isKeepAlive(request.getHttpRequest());
                 if (httpResponse != null) {
                     isKeepAlive = isKeepAlive && HttpUtil.isKeepAlive(httpResponse);
                 }
-                writeHttpResponse(httpResponse, ctx, isKeepAlive);
+                writeHttpResponse(httpResponse, ctx, isKeepAlive, startProcessingTime);
+
+                // Asynchronously sends statistics to the control plane (i.e., RC).
+                InetAddress clientInetAddress = null;
+                if (ctx.channel().remoteAddress() instanceof InetSocketAddress isa) {
+                    clientInetAddress = isa.getAddress();
+                }
+                arFunctions.updateDemandStatsFromHttp(executedRequest, clientInetAddress);
             }
         }
     }
@@ -722,7 +733,7 @@ public class HttpActiveReplica {
      * @throws InterruptedException
      */
     public static void main(String[] args) throws CertificateException, SSLException, InterruptedException {
-        new HttpActiveReplica(null, new InetSocketAddress(8080), false);
+        new HttpActiveReplica("node1", null, new InetSocketAddress(8080), false);
     }
 
 }
