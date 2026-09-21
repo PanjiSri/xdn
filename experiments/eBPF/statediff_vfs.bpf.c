@@ -1203,8 +1203,6 @@ int BPF_PROG(handle_vfs_rename, struct renamedata *rd)
 {
 	unsigned long long key = current_key();
 	struct statediff_vfs_pending *p;
-	struct inode *old_dir;
-	struct inode *new_dir;
 	struct dentry *old_dentry;
 	struct dentry *new_dentry;
 	int old_tracked;
@@ -1217,14 +1215,19 @@ int BPF_PROG(handle_vfs_rename, struct renamedata *rd)
 	if (!p)
 		return 0;
 
-	old_dir = BPF_CORE_READ(rd, old_dir);
-	new_dir = BPF_CORE_READ(rd, new_dir);
 	old_dentry = BPF_CORE_READ(rd, old_dentry);
 	new_dentry = BPF_CORE_READ(rd, new_dentry);
 
-	if (!inode_to_key(old_dir, &p->parent))
+	/*
+	 * The parent directories are derived from the dentries rather than read
+	 * out of renamedata. Its old_dir/new_dir inode fields were replaced by
+	 * old_parent/new_parent dentries in later kernels, so naming either one
+	 * directly only compiles against a single kernel generation. d_parent is
+	 * present in both and yields the same inode.
+	 */
+	if (!dentry_parent_key(old_dentry, &p->parent))
 		return 0;
-	if (!inode_to_key(new_dir, &p->new_parent))
+	if (!dentry_parent_key(new_dentry, &p->new_parent))
 		return 0;
 
 	old_tracked = dir_is_tracked(&p->parent);
@@ -1349,19 +1352,50 @@ int BPF_PROG(handle_security_mmap_file, struct file *file, unsigned long prot,
 }
 
 /*
- * folio_size() in BPF. PG_head marks a multi-page large folio whose page count
- * lives in _folio_nr_pages, while an order-0 folio is a single PAGE_SIZE page.
+ * Where a large folio records its extent moved between kernel versions, so it
+ * is probed through CO-RE flavors instead of being named directly. Declaring
+ * both shapes locally keeps the program compilable on either kernel, and
+ * bpf_core_field_exists() resolves against the running one at load time.
+ */
+struct folio___nrpages {
+	unsigned int _folio_nr_pages;
+} __attribute__((preserve_access_index));
+
+struct folio___flags1 {
+	unsigned long _flags_1;
+} __attribute__((preserve_access_index));
+
+/*
+ * folio_size() in BPF. PG_head marks a multi-page large folio, whose extent is
+ * held either as a page count or as an order in the low byte of _flags_1. An
+ * order-0 folio is a single PAGE_SIZE page.
  */
 static __always_inline unsigned long long folio_size_bytes(struct folio *folio)
 {
+	struct folio___nrpages *by_count = (void *)folio;
+	struct folio___flags1 *by_order = (void *)folio;
 	unsigned long flags = BPF_CORE_READ(folio, flags);
 
-	if (flags & (1UL << PG_head)) {
-		unsigned int nr = BPF_CORE_READ(folio, _folio_nr_pages);
+	if (!(flags & (1UL << PG_head)))
+		return 1ULL << PAGE_SHIFT;
 
-		return (unsigned long long)nr << PAGE_SHIFT;
-	}
-	return 1ULL << PAGE_SHIFT;
+	if (bpf_core_field_exists(by_count->_folio_nr_pages))
+		return (unsigned long long)BPF_CORE_READ(by_count,
+							_folio_nr_pages)
+			<< PAGE_SHIFT;
+
+	if (bpf_core_field_exists(by_order->_flags_1))
+		return 1ULL << (PAGE_SHIFT +
+				(BPF_CORE_READ(by_order, _flags_1) & 0xff));
+
+	/*
+	 * The extent of this folio cannot be determined on this kernel.
+	 * Reporting a single page would silently truncate the snapshot to the
+	 * first PAGE_SIZE bytes of a larger dirty range, so the batch is failed
+	 * instead. Returning zero also suppresses the read in snapshot_range().
+	 */
+	count_error(SD_VFS_ERROR_INTERNAL, 1);
+	return 0;
 }
 
 /*
