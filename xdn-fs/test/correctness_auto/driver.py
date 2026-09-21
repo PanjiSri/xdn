@@ -364,10 +364,14 @@ class EbpfDriver(Driver):
             if self._proc.poll() is not None:
                 raise RuntimeError(
                     f"statediff_vfs exited early (code {self._proc.returncode}) "
-                    f"before its harvest socket was ready; see {self._log_path}"
+                    f"before its harvest socket was ready\n"
+                    f"--- tail of {self._log_path} ---\n"
+                    f"{self.process_output()[-3000:]}"
                 )
             time.sleep(0.05)
         raise TimeoutError(
             f"harvest socket at {self._socket_path} did not become ready "
-            f"within {self.start_timeout}s"
+            f"within {self.start_timeout}s\n"
+            f"--- tail of {self._log_path} ---\n"
+            f"{self.process_output()[-3000:]}"
         )

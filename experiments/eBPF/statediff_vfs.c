@@ -20,6 +20,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 #include <bpf/bpf.h>
+#include <bpf/btf.h>
 #include <bpf/libbpf.h>
 #include "statediff_vfs.h"
 #include "statediff_vfs.skel.h"
@@ -1397,6 +1398,54 @@ static unsigned long long stats_loss_count(
 
 // Fail closed. Any non-zero counter means the batch no longer describes the
 // tree, so the caller must report an error instead of shipping a partial diff.
+/*
+ * vfs_mkdir() returns int on older kernels and the created dentry on newer
+ * ones. Two fexit programs cover both shapes, and only the one whose argument
+ * list matches the running kernel can be loaded, so the other is disabled
+ * here. The running kernel's BTF is the authority on which applies.
+ */
+static int select_mkdir_program(struct statediff_vfs_bpf *skel)
+{
+	const struct btf_type *proto;
+	const struct btf_type *ret;
+	const struct btf_type *func;
+	struct btf *btf;
+	int returns_ptr = -1;
+	int id;
+
+	btf = btf__load_vmlinux_btf();
+	if (!btf) {
+		fprintf(stderr, "Failed to load kernel BTF: %s\n",
+			strerror(errno));
+		return -1;
+	}
+
+	id = btf__find_by_name_kind(btf, "vfs_mkdir", BTF_KIND_FUNC);
+	if (id > 0) {
+		func = btf__type_by_id(btf, id);
+		proto = func ? btf__type_by_id(btf, func->type) : NULL;
+		if (proto) {
+			ret = btf__type_by_id(btf, proto->type);
+			while (ret && (btf_is_mod(ret) || btf_is_typedef(ret)))
+				ret = btf__type_by_id(btf, ret->type);
+			returns_ptr = ret && btf_is_ptr(ret);
+		}
+	}
+	btf__free(btf);
+
+	if (returns_ptr < 0) {
+		fprintf(stderr,
+			"Failed to determine the return type of vfs_mkdir from kernel BTF\n");
+		return -1;
+	}
+
+	bpf_program__set_autoload(skel->progs.handle_vfs_mkdir_ret,
+				  !returns_ptr);
+	bpf_program__set_autoload(skel->progs.handle_vfs_mkdir_ret_dentry,
+				  returns_ptr);
+	return 0;
+}
+
 static int check_capture_loss(struct statediff_vfs_bpf *skel)
 {
 	struct statediff_vfs_stats stats;
@@ -1733,6 +1782,11 @@ int main(int argc, char **argv)
 					  false);
 		bpf_program__set_autoload(
 			skel->progs.handle_folio_start_writeback, false);
+	}
+
+	if (select_mkdir_program(skel) < 0) {
+		err = -1;
+		goto cleanup;
 	}
 
 	err = statediff_vfs_bpf__load(skel);

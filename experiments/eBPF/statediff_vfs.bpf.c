@@ -646,9 +646,7 @@ int BPF_PROG(handle_vfs_mkdir, struct mnt_idmap *idmap, struct inode *dir,
 	return save_child_op(&pending_mkdir, SD_VFS_OP_MKDIR, dir, dentry, mode);
 }
 
-SEC("fexit/vfs_mkdir")
-int BPF_PROG(handle_vfs_mkdir_ret, struct mnt_idmap *idmap, struct inode *dir,
-	     struct dentry *dentry, umode_t mode, int ret)
+static __always_inline int mkdir_ret_common(struct dentry *created, int ok)
 {
 	struct statediff_vfs_pending *p;
 	struct inode *inode;
@@ -656,7 +654,7 @@ int BPF_PROG(handle_vfs_mkdir_ret, struct mnt_idmap *idmap, struct inode *dir,
 	unsigned char tracked = 1;
 
 	p = bpf_map_lookup_elem(&pending_mkdir, &key);
-	if (p && ret >= 0) {
+	if (p && ok) {
 		/*
 		 * The mode argument is the requested mode, not the created one:
 		 * current_umask() is applied by do_mkdirat() only when
@@ -664,15 +662,44 @@ int BPF_PROG(handle_vfs_mkdir_ret, struct mnt_idmap *idmap, struct inode *dir,
 		 * posix_acl_create(). The created inode's i_mode is therefore
 		 * the only authority, as is already relied on for CREATE.
 		 */
-		inode = BPF_CORE_READ(dentry, d_inode);
+		inode = BPF_CORE_READ(created, d_inode);
 		if (inode)
 			p->mode = BPF_CORE_READ(inode, i_mode);
-		if (dentry_to_key(dentry, &p->object) &&
+		if (dentry_to_key(created, &p->object) &&
 		    bpf_map_update_elem(&tracked_dirs, &p->object, &tracked,
 					BPF_ANY) < 0)
 			count_error(SD_VFS_ERROR_INTERNAL, 1);
 	}
-	return emit_pending_event(&pending_mkdir, ret);
+	return emit_pending_event(&pending_mkdir, ok ? 0 : -1);
+}
+
+/*
+ * vfs_mkdir() returned int until it was changed to return the created dentry.
+ * An fexit program's argument list is matched against the target's BTF, so one
+ * program can only load on one kernel generation. Both shapes are provided and
+ * the loader enables whichever matches, in select_mkdir_program().
+ */
+SEC("fexit/vfs_mkdir")
+int BPF_PROG(handle_vfs_mkdir_ret, struct mnt_idmap *idmap, struct inode *dir,
+	     struct dentry *dentry, umode_t mode, int ret)
+{
+	return mkdir_ret_common(dentry, ret >= 0);
+}
+
+SEC("fexit/vfs_mkdir")
+int BPF_PROG(handle_vfs_mkdir_ret_dentry, struct mnt_idmap *idmap,
+	     struct inode *dir, struct dentry *dentry, umode_t mode,
+	     struct dentry *ret)
+{
+	unsigned long dp = (unsigned long)ret;
+	// Failure is an ERR_PTR in the last page, as with do_filp_open().
+	int ok = dp != 0 && dp < (unsigned long)-4095L;
+
+	/*
+	 * The returned dentry is the one the directory was created on, which
+	 * can differ from the one passed in, so the mode is taken from it.
+	 */
+	return mkdir_ret_common(ok ? ret : dentry, ok);
 }
 
 // Buffered writes. The entry hook only records where the user buffer is, and

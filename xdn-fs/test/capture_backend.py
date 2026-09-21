@@ -40,6 +40,26 @@ def backend_name() -> str:
     return os.environ.get("CAPTURE_BACKEND", FUSELOG).strip().lower()
 
 
+def _log_tail(log_path, limit=3000):
+    """Last `limit` characters of a capturer log, for failure messages.
+
+    A recorder that dies during startup puts the reason here and nowhere else.
+    Pointing at the path is not enough under CI, where reading it afterwards
+    means downloading a build artifact, so the text is inlined into the error."""
+    if not log_path:
+        return ""
+    try:
+        with open(log_path, errors="replace") as f:
+            text = f.read()
+    except OSError as e:
+        return f"\n--- {log_path} could not be read: {e} ---"
+    if not text.strip():
+        return f"\n--- {log_path} is empty ---"
+    if len(text) > limit:
+        text = text[-limit:]
+    return f"\n--- tail of {log_path} ---\n{text}"
+
+
 def _wait_for_socket(path: Path, proc: subprocess.Popen, what: str,
                      log_path: str | None, timeout: float = 10.0):
     """Block until `path` accepts a connection, or the process dies.
@@ -59,15 +79,14 @@ def _wait_for_socket(path: Path, proc: subprocess.Popen, what: str,
             except OSError:
                 pass
         if proc.poll() is not None:
-            hint = f"; see {log_path}" if log_path else ""
             raise RuntimeError(
                 f"{what} exited early with code {proc.returncode} before its "
-                f"harvest socket was ready{hint}")
+                f"harvest socket was ready{_log_tail(log_path)}")
         time.sleep(0.05)
     proc.terminate()
     raise RuntimeError(
         f"{what} did not open a usable harvest socket at {path} "
-        f"within {timeout}s")
+        f"within {timeout}s{_log_tail(log_path)}")
 
 
 class CaptureBackend(ABC):
